@@ -1,0 +1,13 @@
+[package]
+name = "tak-tactics-backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+axum = {version = "0.8.4", features = ["macros"] }
+rusqlite = { version = "0.36.0", features = ["bundled"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_rusqlite = "0.39.0"
+tokio = { version = "1.45.1", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
