@@ -51,8 +51,9 @@ struct PuzzleRequest {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PuzzleResponse {
+    id: usize,
     username: String,
-    playtak_game_id: usize,
+    solved: bool,
     solution: Vec<String>,
     solve_time_seconds: u32,
 }
@@ -67,7 +68,8 @@ async fn main() {
     // build our application with a route
     let app = Router::new()
         // `GET /` goes to `root`
-        .route("/puzzles/{*username}", get(get_puzzle));
+        .route("/puzzles/", get(get_puzzle))
+        .route("/puzzles/{*id}", post(solve_puzzle));
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -99,6 +101,7 @@ pub fn init_db_tables() -> anyhow::Result<()> {
         "CREATE TABLE IF NOT EXISTS puzzle_attempts (
             puzzle_id INTEGER NOT NULL,
             username TEXT NOT NULL,
+            solved INTEGER NOT NULL,
             solve_time_seconds INTEGER NOT NULL,
             solution TEXT NOT NULL,
             timestamp_seconds INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -112,11 +115,11 @@ pub fn init_db_tables() -> anyhow::Result<()> {
 
 // Get a random puzzle
 #[axum::debug_handler]
-async fn get_puzzle(Path(path): Path<String>) -> Result<Json<Puzzle>, StatusCode> {
+async fn get_puzzle(Json(request): Json<PuzzleRequest>) -> Result<Json<Puzzle>, StatusCode> {
     let db_conn = Connection::open("puzzles.db")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
         .unwrap();
-    match read_unsolved_puzzles_from_db(&db_conn, &path) {
+    match read_unsolved_puzzles_from_db(&db_conn, &request.username) {
         Ok(Some(puzzle)) => Ok(Json(puzzle.into())),
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
@@ -124,6 +127,29 @@ async fn get_puzzle(Path(path): Path<String>) -> Result<Json<Puzzle>, StatusCode
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
+}
+
+// Solve puzzle
+#[axum::debug_handler]
+async fn solve_puzzle(
+    Path(id): Path<u32>,
+    Json(payload): Json<PuzzleResponse>,
+) -> Result<(), StatusCode> {
+    let db_conn = Connection::open("puzzles.db").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    db_conn
+        .execute(
+            "INSERT INTO puzzle_attempts (puzzle_id, username, solved, solve_time_seconds, solution)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                id,
+                payload.username,
+                payload.solved,
+                payload.solve_time_seconds,
+                payload.solution.join(" ")
+            ],
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(())
 }
 
 // INSERT INTO puzzles (size, komi, root_tps, defender_start_move, solution, target_time_seconds, player_white, player_black, playtak_game_id)
@@ -149,6 +175,7 @@ struct PuzzleRow {
 struct PuzzleAttemptRow {
     puzzle_id: u64,
     username: String,
+    solved: bool,
     solve_time_seconds: u32,
     solution: String,
     timestamp_seconds: u64,
