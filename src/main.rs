@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use axum::{
     Json, Router,
-    extract::Path,
-    http::StatusCode,
+    extract::{Path, Query},
+    http::{HeaderValue, Method, StatusCode},
     routing::{get, post},
 };
 use serde_rusqlite::from_row;
+use tower_http::cors::CorsLayer;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,7 +69,12 @@ async fn main() {
     // build our application with a route
     let app = Router::new()
         // `GET /` goes to `root`
-        .route("/puzzles/", get(get_puzzle))
+        .route("/puzzles", get(get_puzzle))
+        .layer(
+            CorsLayer::new()
+                .allow_methods([Method::GET, Method::POST])
+                .allow_origin("http://localhost:8000".parse::<HeaderValue>().unwrap()),
+        )
         .route("/puzzles/{*id}", post(solve_puzzle));
 
     // run our app with hyper, listening globally on port 3000
@@ -115,11 +121,11 @@ pub fn init_db_tables() -> anyhow::Result<()> {
 
 // Get a random puzzle
 #[axum::debug_handler]
-async fn get_puzzle(Json(request): Json<PuzzleRequest>) -> Result<Json<Puzzle>, StatusCode> {
+async fn get_puzzle(username: Query<PuzzleRequest>) -> Result<Json<Puzzle>, StatusCode> {
     let db_conn = Connection::open("puzzles.db")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
         .unwrap();
-    match read_unsolved_puzzles_from_db(&db_conn, &request.username) {
+    match read_unsolved_puzzles_from_db(&db_conn, &username.username) {
         Ok(Some(puzzle)) => Ok(Json(puzzle.into())),
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
