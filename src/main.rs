@@ -9,7 +9,12 @@ use axum::{
     routing::{get, post},
 };
 use serde_rusqlite::from_row;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::DefaultOnRequest,
+};
+use tracing::Level;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +78,11 @@ async fn main() {
         .layer(
             CorsLayer::new()
                 .allow_methods([Method::GET])
+                .allow_origin(
+                    "https://tak-tactics.vercel.app"
+                        .parse::<HeaderValue>()
+                        .unwrap(),
+                )
                 .allow_origin("http://localhost:8000".parse::<HeaderValue>().unwrap()),
         )
         .route("/puzzles/{*id}", post(solve_puzzle))
@@ -80,8 +90,16 @@ async fn main() {
             CorsLayer::new()
                 .allow_methods([Method::POST])
                 .allow_headers(Any)
+                .allow_origin(
+                    "https://tak-tactics.vercel.app"
+                        .parse::<HeaderValue>()
+                        .unwrap(),
+                )
                 .allow_origin("http://localhost:8000".parse::<HeaderValue>().unwrap()),
-        );
+        )
+        .layer(tower::ServiceBuilder::new().layer(
+            TraceLayer::new_for_http().on_request(DefaultOnRequest::new().level(Level::INFO)),
+        ));
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
