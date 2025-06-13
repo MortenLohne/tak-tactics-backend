@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
 };
 use serde_rusqlite::from_row;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,10 +72,16 @@ async fn main() {
         .route("/puzzles", get(get_puzzle))
         .layer(
             CorsLayer::new()
-                .allow_methods([Method::GET, Method::POST])
+                .allow_methods([Method::GET])
                 .allow_origin("http://localhost:8000".parse::<HeaderValue>().unwrap()),
         )
-        .route("/puzzles/{*id}", post(solve_puzzle));
+        .route("/puzzles/{*id}", post(solve_puzzle))
+        .layer(
+            CorsLayer::new()
+                .allow_methods([Method::POST])
+                .allow_headers(Any)
+                .allow_origin("http://localhost:8000".parse::<HeaderValue>().unwrap()),
+        );
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -125,6 +131,26 @@ async fn get_puzzle(username: Query<PuzzleRequest>) -> Result<Json<Puzzle>, Stat
     let db_conn = Connection::open("puzzles.db")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
         .unwrap();
+    let puzzles_solved = read_puzzle_attempts_for_user(&db_conn, &username.username)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Always show puzzle 3 first
+    if !puzzles_solved.iter().any(|attempt| attempt.puzzle_id == 3) {
+        let puzzle_3 = read_puzzle_by_id(&db_conn, 3)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .unwrap();
+        return Ok(Json(Puzzle::from(puzzle_3)));
+    }
+
+    // Always show puzzle 15 second
+    if !puzzles_solved.iter().any(|attempt| attempt.puzzle_id == 15) {
+        let puzzle_15 = read_puzzle_by_id(&db_conn, 15)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .unwrap();
+        return Ok(Json(Puzzle::from(puzzle_15)));
+    }
+
+    // Then show any puzzle up to id 20
     match read_unsolved_puzzles_from_db(&db_conn, &username.username) {
         Ok(Some(puzzle)) => Ok(Json(puzzle.into())),
         Ok(None) => Err(StatusCode::NOT_FOUND),
@@ -194,10 +220,40 @@ fn read_unsolved_puzzles_from_db(
     let mut stmt = db_conn.prepare(
         "SELECT puzzles.* FROM puzzles
         LEFT JOIN puzzle_attempts ON puzzles.id = puzzle_attempts.puzzle_id AND puzzle_attempts.username = ?1
-        WHERE puzzle_attempts.puzzle_id IS NULL ORDER BY RANDOM() LIMIT 1",
+        WHERE puzzles.id < 20 AND puzzle_attempts.puzzle_id IS NULL ORDER BY RANDOM() LIMIT 1",
     )?;
     Ok(stmt
         .query_and_then([username], from_row::<PuzzleRow>)?
+        .next()
+        .transpose()?)
+}
+
+fn read_puzzle_attempts_for_user(
+    db_conn: &Connection,
+    username: &str,
+) -> anyhow::Result<Vec<PuzzleAttemptRow>> {
+    let mut stmt = db_conn.prepare(
+        "WITH ranked_attempts AS (
+            SELECT *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY username, puzzle_id
+                    ORDER BY timestamp_seconds ASC
+                ) AS rn
+            FROM puzzle_attempts WHERE username = ?1
+        )
+        SELECT *
+        FROM ranked_attempts
+        WHERE rn = 1;
+        ",
+    )?;
+    let rows = stmt.query_and_then([username], from_row::<PuzzleAttemptRow>)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+fn read_puzzle_by_id(db_conn: &Connection, id: u32) -> anyhow::Result<Option<PuzzleRow>> {
+    let mut stmt = db_conn.prepare("SELECT * FROM puzzles WHERE id = ?1")?;
+    Ok(stmt
+        .query_and_then([id], from_row::<PuzzleRow>)?
         .next()
         .transpose()?)
 }
