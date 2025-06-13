@@ -1,4 +1,5 @@
 use anyhow::Context;
+use rand::Rng;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +35,16 @@ struct Puzzle {
 
 impl From<PuzzleRow> for Puzzle {
     fn from(row: PuzzleRow) -> Self {
+        // TODO: We manually set the target time here, but it should be set in the database
+        let num_pieces = row
+            .root_tps
+            .chars()
+            .filter(|c| *c == '1' || *c == '2')
+            .count()
+            / 2;
+        let length = row.solution.split_whitespace().count().div_ceil(2);
+        let low_target_time = (20.0 + num_pieces as f32) * length as f32;
+        let target_time = rand::rng().random_range(low_target_time..(low_target_time * 1.2)) as u32;
         Self {
             id: row.id,
             size: row.size,
@@ -41,7 +52,7 @@ impl From<PuzzleRow> for Puzzle {
             root_tps: row.root_tps,
             defender_start_move: row.defender_start_move,
             solution: row.solution.split_whitespace().map(String::from).collect(),
-            target_time_seconds: row.target_time_seconds,
+            target_time_seconds: target_time,
             player_white: row.player_white,
             player_black: row.player_black,
             playtak_game_id: row.playtak_game_id,
