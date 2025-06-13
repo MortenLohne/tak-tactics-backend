@@ -128,6 +128,9 @@ pub fn init_db_tables() -> anyhow::Result<()> {
 // Get a random puzzle
 #[axum::debug_handler]
 async fn get_puzzle(username: Query<PuzzleRequest>) -> Result<Json<Puzzle>, StatusCode> {
+    if username.username.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let db_conn = Connection::open("puzzles.db")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
         .unwrap();
@@ -167,6 +170,9 @@ async fn solve_puzzle(
     Path(id): Path<u32>,
     Json(payload): Json<PuzzleResponse>,
 ) -> Result<(), StatusCode> {
+    if payload.username.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let db_conn = Connection::open("puzzles.db").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     db_conn
         .execute(
