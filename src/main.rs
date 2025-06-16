@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use axum::{
     Json, Router,
     extract::{Path, Query},
-    http::{HeaderValue, Method, StatusCode},
+    http::{Method, StatusCode},
     routing::{get, post},
 };
 use serde_rusqlite::from_row;
@@ -89,24 +89,14 @@ async fn main() {
         .layer(
             CorsLayer::new()
                 .allow_methods([Method::GET])
-                .allow_origin(
-                    "https://tak-tactics.vercel.app"
-                        .parse::<HeaderValue>()
-                        .unwrap(),
-                )
-                .allow_origin("http://localhost:8000".parse::<HeaderValue>().unwrap()),
+                .allow_origin(Any),
         )
         .route("/puzzles/{*id}", post(solve_puzzle))
         .layer(
             CorsLayer::new()
                 .allow_methods([Method::POST])
                 .allow_headers(Any)
-                .allow_origin(
-                    "https://tak-tactics.vercel.app"
-                        .parse::<HeaderValue>()
-                        .unwrap(),
-                )
-                .allow_origin("http://localhost:8000".parse::<HeaderValue>().unwrap()),
+                .allow_origin(Any),
         )
         .layer(tower::ServiceBuilder::new().layer(
             TraceLayer::new_for_http().on_request(DefaultOnRequest::new().level(Level::INFO)),
