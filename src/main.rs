@@ -17,6 +17,8 @@ use tower_http::{
 };
 use tracing::Level;
 
+mod ratings;
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Puzzle {
@@ -85,16 +87,12 @@ async fn main() {
     // build our application with a route
     let app = Router::new()
         // `GET /` goes to `root`
+        .route("/puzzles/{id}/rating", get(get_puzzle_rating))
         .route("/puzzles", get(get_puzzle))
+        .route("/puzzles/{id}", post(solve_puzzle))
         .layer(
             CorsLayer::new()
-                .allow_methods([Method::GET])
-                .allow_origin(Any),
-        )
-        .route("/puzzles/{*id}", post(solve_puzzle))
-        .layer(
-            CorsLayer::new()
-                .allow_methods([Method::POST])
+                .allow_methods([Method::GET, Method::POST])
                 .allow_headers(Any)
                 .allow_origin(Any),
         )
@@ -141,6 +139,16 @@ pub fn init_db_tables() -> anyhow::Result<()> {
         [],
     )?;
 
+    // Ratings have to be inserted manually for now
+    db_conn.execute(
+        "CREATE TABLE IF NOT EXISTS \"users\" (
+	    \"username\" TEXT NOT NULL,
+	    \"rating\" REAL NOT NULL,
+	    PRIMARY KEY(\"username\")
+    )",
+        [],
+    )?;
+
     Ok(())
 }
 
@@ -181,6 +189,17 @@ async fn get_puzzle(username: Query<PuzzleRequest>) -> Result<Json<Puzzle>, Stat
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
+}
+
+// Get elo rating of a single puzzle
+// Depends on player ratings being manually added to the `users` table
+async fn get_puzzle_rating(Path(id): Path<u32>) -> Result<Json<f64>, StatusCode> {
+    let db_conn = Connection::open("puzzles.db")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .unwrap();
+    let rating = ratings::rating_for_puzzles(&db_conn, id as i64)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rating.rating))
 }
 
 // Solve puzzle
