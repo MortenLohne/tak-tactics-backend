@@ -32,12 +32,7 @@ pub fn rating_for_puzzles(db_conn: &Connection, puzzle_id: i64) -> anyhow::Resul
 
     let puzzle_default_rating = default_puzzle_rating(db_conn, puzzle_id)?;
 
-    println!(
-        "Puzzle {} has default rating {}",
-        puzzle_id, puzzle_default_rating
-    );
-
-    let player = Glicko2Rating {
+    let puzzle_player = Glicko2Rating {
         rating: puzzle_default_rating as f64,
         ..Default::default()
     };
@@ -45,27 +40,19 @@ pub fn rating_for_puzzles(db_conn: &Connection, puzzle_id: i64) -> anyhow::Resul
     let results = ratings
         .into_iter()
         .map(|r| {
+            let player_rating = Glicko2Rating {
+                rating: r.rating,
+                ..Default::default()
+            };
             if r.solved {
-                (
-                    Glicko2Rating {
-                        rating: r.rating,
-                        ..Default::default()
-                    },
-                    Outcomes::LOSS,
-                )
+                (player_rating, Outcomes::LOSS)
             } else {
-                (
-                    Glicko2Rating {
-                        rating: r.rating,
-                        ..Default::default()
-                    },
-                    Outcomes::WIN,
-                )
+                (player_rating, Outcomes::WIN)
             }
         })
         .collect::<Vec<_>>();
 
-    let new_player = glicko2_rating_period(&player, &results, &Glicko2Config::new());
+    let new_player = glicko2_rating_period(&puzzle_player, &results, &Glicko2Config::new());
 
     Ok(new_player)
 }
